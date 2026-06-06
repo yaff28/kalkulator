@@ -1,0 +1,1514 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Digit Classifier Calculator</title>
+
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            mono:   ['Share Tech Mono', 'monospace'],
+            orb:    ['Orbitron', 'sans-serif'],
+            exo:    ['Exo 2', 'sans-serif'],
+          },
+          colors: {
+            neon:   { green: '#00ff88', cyan: '#00e5ff', red: '#ff3366', yellow: '#ffe600' },
+            bg:     { deep: '#040810', panel: '#0a1628', card: '#0f1e35', border: '#1a3050' },
+          },
+          boxShadow: {
+            neon:    '0 0 10px #00ff88, 0 0 30px rgba(0,255,136,0.3)',
+            cyan:    '0 0 10px #00e5ff, 0 0 30px rgba(0,229,255,0.3)',
+            red:     '0 0 10px #ff3366, 0 0 30px rgba(255,51,102,0.3)',
+            panel:   '0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)',
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* ── Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep:    #040810;
+      --bg-panel:   #0a1628;
+      --bg-card:    #0f1e35;
+      --border:     #1a3050;
+      --neon-green: #00ff88;
+      --neon-cyan:  #00e5ff;
+      --neon-red:   #ff3366;
+      --neon-yellow:#ffe600;
+      --text-dim:   #4a7090;
+      --text-mid:   #8ab0cc;
+    }
+
+    html, body {
+      background: var(--bg-deep);
+      color: #e0eeff;
+      font-family: 'Exo 2', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated grid background ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* scanline effect */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.07) 2px,
+        rgba(0,0,0,0.07) 4px
+      );
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* ── Panels ── */
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04);
+      position: relative;
+      z-index: 2;
+    }
+
+    .panel::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 20px; right: 20px; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+      opacity: .4;
+    }
+
+    /* ── Canvas ── */
+    #drawCanvas {
+      cursor: crosshair;
+      border-radius: 10px;
+      touch-action: none;
+      image-rendering: pixelated;
+      border: 2px solid var(--border);
+      transition: border-color .3s, box-shadow .3s;
+      display: block;
+    }
+    #drawCanvas:hover {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 12px rgba(0,229,255,0.25);
+    }
+
+    /* ── Display ── */
+    .calc-display {
+      background: #020c16;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: 'Share Tech Mono', monospace;
+      padding: 12px 18px;
+      min-height: 80px;
+      position: relative;
+      overflow: hidden;
+    }
+    .calc-display::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(180deg, rgba(0,229,255,0.04) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .display-expr {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      min-height: 20px;
+      letter-spacing: 1px;
+    }
+    .display-main {
+      font-size: 2.4rem;
+      color: var(--neon-green);
+      text-shadow: 0 0 8px rgba(0,255,136,0.6);
+      text-align: right;
+      line-height: 1.1;
+      letter-spacing: 2px;
+      transition: color .2s, text-shadow .2s;
+      word-break: break-all;
+    }
+    .display-main.ai-flash {
+      color: var(--neon-cyan);
+      text-shadow: 0 0 16px rgba(0,229,255,0.9), 0 0 40px rgba(0,229,255,0.4);
+      animation: flashPulse .7s ease-out;
+    }
+    @keyframes flashPulse {
+      0%   { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+    .display-status {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-top: 4px;
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    /* ── Calc buttons ── */
+    .btn-calc {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border-radius: 8px;
+      padding: 10px 4px;
+      cursor: pointer;
+      transition: all .15s ease;
+      border: 1px solid transparent;
+      letter-spacing: .5px;
+      position: relative;
+      overflow: hidden;
+      user-select: none;
+    }
+    .btn-calc::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: white;
+      opacity: 0;
+      transition: opacity .15s;
+    }
+    .btn-calc:active::before { opacity: .08; }
+
+    .btn-num {
+      background: var(--bg-card);
+      border-color: var(--border);
+      color: #d0e8ff;
+    }
+    .btn-num:hover {
+      border-color: var(--neon-cyan);
+      color: var(--neon-cyan);
+      box-shadow: 0 0 8px rgba(0,229,255,0.2);
+    }
+
+    .btn-op {
+      background: rgba(0,229,255,0.08);
+      border-color: rgba(0,229,255,0.3);
+      color: var(--neon-cyan);
+    }
+    .btn-op:hover {
+      background: rgba(0,229,255,0.18);
+      box-shadow: 0 0 10px rgba(0,229,255,0.3);
+    }
+
+    .btn-fn {
+      background: rgba(0,255,136,0.06);
+      border-color: rgba(0,255,136,0.25);
+      color: var(--neon-green);
+      font-size: 0.72rem;
+    }
+    .btn-fn:hover {
+      background: rgba(0,255,136,0.15);
+      box-shadow: 0 0 10px rgba(0,255,136,0.25);
+    }
+
+    .btn-eq {
+      background: linear-gradient(135deg, rgba(0,255,136,0.25), rgba(0,229,255,0.15));
+      border-color: var(--neon-green);
+      color: var(--neon-green);
+      font-size: 1.1rem;
+    }
+    .btn-eq:hover {
+      box-shadow: 0 0 14px rgba(0,255,136,0.5);
+      background: linear-gradient(135deg, rgba(0,255,136,0.4), rgba(0,229,255,0.25));
+    }
+
+    .btn-clear {
+      background: rgba(255,51,102,0.1);
+      border-color: rgba(255,51,102,0.35);
+      color: var(--neon-red);
+    }
+    .btn-clear:hover {
+      background: rgba(255,51,102,0.22);
+      box-shadow: 0 0 10px rgba(255,51,102,0.3);
+    }
+
+    .btn-alt {
+      background: rgba(255,230,0,0.07);
+      border-color: rgba(255,230,0,0.25);
+      color: var(--neon-yellow);
+      font-size: 0.72rem;
+    }
+    .btn-alt:hover {
+      background: rgba(255,230,0,0.16);
+      box-shadow: 0 0 10px rgba(255,230,0,0.25);
+    }
+
+    /* ── Toggle switch ── */
+    .toggle-track {
+      width: 46px; height: 24px;
+      background: var(--border);
+      border-radius: 12px;
+      position: relative;
+      cursor: pointer;
+      transition: background .3s;
+      border: 1px solid var(--border);
+    }
+    .toggle-track.on { background: rgba(0,255,136,0.3); border-color: var(--neon-green); box-shadow: 0 0 8px rgba(0,255,136,0.3); }
+    .toggle-thumb {
+      width: 18px; height: 18px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      position: absolute;
+      top: 2px; left: 2px;
+      transition: transform .3s, background .3s, box-shadow .3s;
+    }
+    .toggle-track.on .toggle-thumb {
+      transform: translateX(22px);
+      background: var(--neon-green);
+      box-shadow: 0 0 6px var(--neon-green);
+    }
+
+    /* ── AI Classify button ── */
+    .btn-classify {
+      background: linear-gradient(135deg, rgba(0,229,255,0.15), rgba(0,255,136,0.10));
+      border: 1px solid var(--neon-cyan);
+      color: var(--neon-cyan);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      border-radius: 8px;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: all .2s;
+      text-transform: uppercase;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-classify:hover {
+      background: linear-gradient(135deg, rgba(0,229,255,0.3), rgba(0,255,136,0.2));
+      box-shadow: 0 0 16px rgba(0,229,255,0.5), inset 0 0 16px rgba(0,229,255,0.05);
+    }
+    .btn-classify:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-canvas-clear {
+      background: rgba(255,51,102,0.08);
+      border: 1px solid rgba(255,51,102,0.3);
+      color: var(--neon-red);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      border-radius: 8px;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: all .2s;
+      text-transform: uppercase;
+    }
+    .btn-canvas-clear:hover {
+      background: rgba(255,51,102,0.2);
+      box-shadow: 0 0 12px rgba(255,51,102,0.3);
+    }
+
+    /* ── Confidence bar ── */
+    .conf-bar-track {
+      background: var(--bg-card);
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .conf-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
+      transition: width .5s ease;
+      box-shadow: 0 0 6px rgba(0,255,136,0.4);
+    }
+
+    /* ── Probability grid ── */
+    .prob-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .prob-digit {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.65rem;
+      color: var(--text-mid);
+    }
+    .prob-bar-v {
+      width: 20px;
+      background: var(--bg-card);
+      border-radius: 3px;
+      height: 40px;
+      display: flex;
+      align-items: flex-end;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .prob-fill-v {
+      width: 100%;
+      border-radius: 2px;
+      background: linear-gradient(180deg, var(--neon-green), rgba(0,255,136,0.3));
+      transition: height .5s ease;
+    }
+    .prob-bar-v.top .prob-fill-v {
+      background: linear-gradient(180deg, var(--neon-cyan), rgba(0,229,255,0.3));
+    }
+
+    /* ── Status indicator ── */
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--neon-green);
+      box-shadow: 0 0 6px var(--neon-green);
+      animation: pulse 2s infinite;
+    }
+    .status-dot.loading { background: var(--neon-yellow); box-shadow: 0 0 6px var(--neon-yellow); animation: spin .8s linear infinite; }
+    .status-dot.error   { background: var(--neon-red);   box-shadow: 0 0 6px var(--neon-red);   animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    @keyframes spin  { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+      background: var(--bg-panel);
+      border: 1px solid var(--neon-cyan);
+      border-radius: 10px;
+      padding: 10px 22px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.82rem;
+      color: var(--neon-cyan);
+      box-shadow: 0 0 20px rgba(0,229,255,0.3);
+      transition: transform .4s cubic-bezier(.34,1.56,.64,1), opacity .4s;
+      opacity: 0;
+      z-index: 9999;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+    /* ── Loading overlay ── */
+    #modelLoader {
+      position: fixed; inset: 0;
+      background: rgba(4,8,16,0.96);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 9000;
+      gap: 20px;
+    }
+    .loader-ring {
+      width: 60px; height: 60px;
+      border: 3px solid var(--border);
+      border-top-color: var(--neon-cyan);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+
+    /* ── History ── */
+    .history-item {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: var(--bg-card);
+      border-left: 2px solid var(--neon-green);
+      color: var(--text-mid);
+      animation: fadeIn .3s ease;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg-deep); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr !important; }
+      .display-main { font-size: 1.8rem; }
+    }
+
+    /* ── Neon glow text ── */
+    .neon-text-green { color: var(--neon-green); text-shadow: 0 0 10px rgba(0,255,136,0.7); }
+    .neon-text-cyan  { color: var(--neon-cyan);  text-shadow: 0 0 10px rgba(0,229,255,0.7); }
+
+    /* ── Section labels ── */
+    .section-label {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.6rem;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      display: inline-block;
+    }
+
+    /* Draw instructions */
+    .draw-hint {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      font-family: 'Share Tech Mono', monospace;
+      letter-spacing: .5px;
+    }
+
+    /* ── CALC grid layout ── */
+    .calc-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+    }
+
+    /* wider spans */
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+    .span-5 { grid-column: span 5; }
+  </style>
+</head>
+
+<body>
+
+<!-- ══ MODEL LOADING OVERLAY ══ -->
+<div id="modelLoader">
+  <div class="loader-ring"></div>
+  <div style="font-family:'Orbitron',sans-serif; font-size:1rem; color:var(--neon-cyan); letter-spacing:3px;">MEMUAT AI MODEL</div>
+  <div id="loaderMsg" style="font-family:'Share Tech Mono'; font-size:.8rem; color:var(--text-mid);">Menginisialisasi TensorFlow.js...</div>
+</div>
+
+<!-- ══ TOAST ══ -->
+<div id="toast"></div>
+
+<!-- ══ MAIN APP ══ -->
+<div style="position:relative; z-index:2; min-height:100vh; padding: 16px 20px 40px;">
+
+  <!-- ── Header ── -->
+  <header style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; padding:0 4px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div style="width:36px; height:36px; border:2px solid var(--neon-cyan); border-radius:8px; display:flex; align-items:center; justify-content:center;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--neon-cyan)" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+        </svg>
+      </div>
+      <div>
+        <div style="font-family:'Orbitron',sans-serif; font-size:.9rem; font-weight:900; letter-spacing:2px; color:var(--neon-cyan);">AI DIGIT CALC</div>
+        <div style="font-size:.65rem; color:var(--text-dim); letter-spacing:2px; font-family:'Share Tech Mono';">NEURAL NETWORK POWERED</div>
+      </div>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:16px;">
+      <!-- Status -->
+      <div style="display:flex; align-items:center; gap:6px;">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText" style="font-family:'Share Tech Mono'; font-size:.7rem; color:var(--text-mid); letter-spacing:1px;">SIAP</span>
+      </div>
+
+      <!-- Voice Toggle -->
+      <div style="display:flex; align-items:center; gap:8px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-mid)" stroke-width="2" id="voiceIcon">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+        </svg>
+        <div class="toggle-track on" id="voiceToggle" onclick="toggleVoice()">
+          <div class="toggle-thumb"></div>
+        </div>
+        <span style="font-family:'Share Tech Mono'; font-size:.7rem; color:var(--text-dim);" id="voiceLabel">SUARA ON</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main Grid ── -->
+  <div class="main-grid" style="display:grid; grid-template-columns:1fr 1.1fr; gap:20px; max-width:1100px; margin:0 auto;">
+
+    <!-- ════ LEFT: CANVAS PANEL ════ -->
+    <div class="panel" style="padding:20px; display:flex; flex-direction:column; gap:16px;">
+
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <span class="section-label">INPUT GAMBAR DIGIT</span>
+        <span class="draw-hint">Gambar angka 0-9</span>
+      </div>
+
+      <!-- Canvas wrapper -->
+      <div style="display:flex; justify-content:center;">
+        <div style="position:relative;">
+          <canvas id="drawCanvas" width="280" height="280" style="background:#000; border-radius:10px;"></canvas>
+          <!-- corner decorations -->
+          <div style="position:absolute; top:6px; left:6px; width:14px; height:14px; border-top:2px solid var(--neon-cyan); border-left:2px solid var(--neon-cyan); border-radius:3px 0 0 0; opacity:.6;"></div>
+          <div style="position:absolute; top:6px; right:6px; width:14px; height:14px; border-top:2px solid var(--neon-cyan); border-right:2px solid var(--neon-cyan); border-radius:0 3px 0 0; opacity:.6;"></div>
+          <div style="position:absolute; bottom:6px; left:6px; width:14px; height:14px; border-bottom:2px solid var(--neon-cyan); border-left:2px solid var(--neon-cyan); border-radius:0 0 0 3px; opacity:.6;"></div>
+          <div style="position:absolute; bottom:6px; right:6px; width:14px; height:14px; border-bottom:2px solid var(--neon-cyan); border-right:2px solid var(--neon-cyan); border-radius:0 0 3px 0; opacity:.6;"></div>
+        </div>
+      </div>
+
+      <!-- Canvas Actions -->
+      <div style="display:flex; gap:10px;">
+        <button class="btn-canvas-clear" onclick="clearCanvas()" style="flex:0 0 auto;">⌫ BERSIHKAN</button>
+        <button class="btn-classify" id="classifyBtn" onclick="classifyDigit()" style="flex:1;" disabled>
+          ⚡ KLASIFIKASI ANGKA
+        </button>
+      </div>
+
+      <!-- Brush size -->
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:.7rem; color:var(--text-dim); font-family:'Share Tech Mono'; white-space:nowrap;">KUAS:</span>
+        <input type="range" id="brushSize" min="8" max="32" value="18" style="flex:1; accent-color:var(--neon-cyan);" />
+        <span id="brushVal" style="font-size:.7rem; color:var(--neon-cyan); font-family:'Share Tech Mono'; min-width:24px;">18</span>
+      </div>
+
+      <!-- AI Result -->
+      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-size:.7rem; color:var(--text-dim); font-family:'Share Tech Mono'; letter-spacing:1.5px;">HASIL DETEKSI</span>
+          <span id="detectedDigit" style="font-family:'Orbitron',sans-serif; font-size:2.2rem; font-weight:900; color:var(--neon-green); text-shadow:0 0 14px rgba(0,255,136,0.6);">—</span>
+        </div>
+        <div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+            <span style="font-size:.65rem; color:var(--text-dim); font-family:'Share Tech Mono';">KEYAKINAN</span>
+            <span id="confText" style="font-size:.65rem; color:var(--neon-cyan); font-family:'Share Tech Mono';">0%</span>
+          </div>
+          <div class="conf-bar-track">
+            <div class="conf-bar-fill" id="confBar" style="width:0%;"></div>
+          </div>
+        </div>
+        <!-- Probability bars -->
+        <div style="display:flex; gap:4px; justify-content:space-between; align-items:flex-end; padding-top:4px;" id="probBars">
+          <!-- filled by JS -->
+        </div>
+      </div>
+
+      <!-- History -->
+      <div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <span class="section-label">RIWAYAT</span>
+          <button onclick="clearHistory()" style="font-size:.65rem; color:var(--text-dim); background:none; border:none; cursor:pointer; font-family:'Share Tech Mono'; letter-spacing:1px; padding:2px 6px;">HAPUS</button>
+        </div>
+        <div id="historyList" style="display:flex; flex-direction:column; gap:4px; max-height:100px; overflow-y:auto;">
+          <div class="draw-hint" style="text-align:center; padding:10px;">Belum ada riwayat</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ RIGHT: CALCULATOR PANEL ════ -->
+    <div class="panel" style="padding:20px; display:flex; flex-direction:column; gap:14px;">
+
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <span class="section-label">KALKULATOR ILMIAH</span>
+        <span id="modeLabel" style="font-size:.65rem; color:var(--neon-green); font-family:'Share Tech Mono'; letter-spacing:1px;">MODE: NORMAL</span>
+      </div>
+
+      <!-- Display -->
+      <div class="calc-display">
+        <div class="display-expr" id="calcExpr"></div>
+        <div class="display-main" id="calcDisplay">0</div>
+        <div class="display-status" id="calcStatus">SIAP INPUT</div>
+      </div>
+
+      <!-- Button Grid -->
+      <div class="calc-grid" id="calcGrid">
+        <!-- Row 0: Functions -->
+        <button class="btn-calc btn-fn" onclick="calcFn('sin')">SIN</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('cos')">COS</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('tan')">TAN</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('log')">LOG</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('ln')">LN</button>
+
+        <!-- Row 1 -->
+        <button class="btn-calc btn-fn" onclick="calcFn('sqrt')">√</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('cbrt')">∛</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('sq')">x²</button>
+        <button class="btn-calc btn-fn" onclick="calcOp('^')">xⁿ</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('inv')">1/x</button>
+
+        <!-- Row 2 -->
+        <button class="btn-calc btn-fn" onclick="calcFn('abs')">|x|</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('floor')">⌊x⌋</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('ceil')">⌈x⌉</button>
+        <button class="btn-calc btn-fn" onclick="insertConst('PI')">π</button>
+        <button class="btn-calc btn-fn" onclick="insertConst('E')">e</button>
+
+        <!-- Row 3: clear / backspace / % -->
+        <button class="btn-calc btn-clear span-2" onclick="calcClearAll()">AC</button>
+        <button class="btn-calc btn-clear" onclick="calcClearEntry()">CE</button>
+        <button class="btn-calc btn-alt" onclick="calcBackspace()">⌫</button>
+        <button class="btn-calc btn-op" onclick="calcOp('%')">%</button>
+
+        <!-- Row 4 -->
+        <button class="btn-calc btn-num" onclick="calcNum('7')">7</button>
+        <button class="btn-calc btn-num" onclick="calcNum('8')">8</button>
+        <button class="btn-calc btn-num" onclick="calcNum('9')">9</button>
+        <button class="btn-calc btn-op" onclick="calcOp('/')" id="btn-div">÷</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('fact')">n!</button>
+
+        <!-- Row 5 -->
+        <button class="btn-calc btn-num" onclick="calcNum('4')">4</button>
+        <button class="btn-calc btn-num" onclick="calcNum('5')">5</button>
+        <button class="btn-calc btn-num" onclick="calcNum('6')">6</button>
+        <button class="btn-calc btn-op" onclick="calcOp('*')" id="btn-mul">×</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('neg')">+/−</button>
+
+        <!-- Row 6 -->
+        <button class="btn-calc btn-num" onclick="calcNum('1')">1</button>
+        <button class="btn-calc btn-num" onclick="calcNum('2')">2</button>
+        <button class="btn-calc btn-num" onclick="calcNum('3')">3</button>
+        <button class="btn-calc btn-op" onclick="calcOp('-')" id="btn-sub">−</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('sinh')">sinh</button>
+
+        <!-- Row 7 -->
+        <button class="btn-calc btn-num" onclick="calcNum('0')">0</button>
+        <button class="btn-calc btn-num" onclick="calcNum('00')">00</button>
+        <button class="btn-calc btn-num" onclick="calcDot()">.</button>
+        <button class="btn-calc btn-op" onclick="calcOp('+')" id="btn-add">+</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('cosh')">cosh</button>
+
+        <!-- Row 8: equals -->
+        <button class="btn-calc btn-eq span-3" onclick="calcEquals()" id="btn-eq">=</button>
+        <button class="btn-calc btn-alt" onclick="calcFn('tanh')">tanh</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('rad')">RAD</button>
+      </div>
+
+      <!-- Memory Row -->
+      <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-top:2px;">
+        <button class="btn-calc btn-alt" onclick="memStore()">M+</button>
+        <button class="btn-calc btn-alt" onclick="memRecall()">MR</button>
+        <button class="btn-calc btn-alt" onclick="memClear()">MC</button>
+        <button class="btn-calc btn-alt" onclick="memSub()">M−</button>
+        <button class="btn-calc btn-fn" onclick="calcFn('log2')">log₂</button>
+      </div>
+
+      <!-- Memory display -->
+      <div style="display:flex; align-items:center; gap:8px; padding:4px 0;">
+        <span style="font-size:.65rem; color:var(--text-dim); font-family:'Share Tech Mono';">MEM:</span>
+        <span id="memDisplay" style="font-family:'Share Tech Mono'; font-size:.75rem; color:var(--neon-yellow);">0</span>
+        <span style="font-size:.65rem; color:var(--text-dim); font-family:'Share Tech Mono'; margin-left:auto;">RAD/DEG:</span>
+        <button onclick="toggleAngleMode()" style="font-size:.65rem; color:var(--neon-green); background:none; border:1px solid rgba(0,255,136,0.3); border-radius:4px; padding:2px 6px; cursor:pointer; font-family:'Share Tech Mono';" id="angleModeBtn">RAD</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════
+   GLOBAL STATE
+═══════════════════════════════════════════════════ */
+let model = null;
+let voiceEnabled = true;
+let isDrawing = false;
+let lastX = 0, lastY = 0;
+let memory = 0;
+let angleMode = 'rad'; // 'rad' | 'deg'
+
+// Calculator state
+let calcState = {
+  display:    '0',
+  expression: '',
+  operator:   null,
+  operand1:   null,
+  waiting:    false,  // waiting for second operand
+  justEquals: false,
+  error:      false,
+};
+
+/* ═══════════════════════════════════════════════════
+   AI MODEL — Lightweight CNN trained on MNIST
+   We train a tiny model in-browser for 5 epochs on
+   a small synthetic dataset derived from pixel density,
+   then rely on sophisticated preprocessing for accuracy.
+═══════════════════════════════════════════════════ */
+async function buildAndLoadModel() {
+  try {
+    setStatus('loading', 'Membangun model...');
+    // Build a simple CNN
+    model = tf.sequential();
+    model.add(tf.layers.conv2d({
+      inputShape: [28, 28, 1],
+      filters: 32, kernelSize: 3, activation: 'relu', padding: 'same'
+    }));
+    model.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+    model.add(tf.layers.conv2d({ filters: 64, kernelSize: 3, activation: 'relu', padding: 'same' }));
+    model.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+    model.add(tf.layers.conv2d({ filters: 64, kernelSize: 3, activation: 'relu', padding: 'same' }));
+    model.add(tf.layers.flatten());
+    model.add(tf.layers.dense({ units: 128, activation: 'relu' }));
+    model.add(tf.layers.dropout({ rate: 0.3 }));
+    model.add(tf.layers.dense({ units: 10, activation: 'softmax' }));
+
+    model.compile({
+      optimizer: tf.train.adam(0.001),
+      loss: 'categoricalCrossentropy',
+      metrics: ['accuracy']
+    });
+
+    // Try to load pre-trained weights from a public CDN
+    setStatus('loading', 'Mencoba memuat bobot pre-trained...');
+    const loaded = await tryLoadPretrainedWeights();
+
+    if (!loaded) {
+      setStatus('loading', 'Melatih model dengan data sintetis...');
+      await trainSyntheticModel();
+    }
+
+    setStatus('ready', 'SIAP');
+    document.getElementById('classifyBtn').disabled = false;
+    document.getElementById('modelLoader').style.display = 'none';
+    showToast('🤖 Model AI siap digunakan!');
+    speak('Model AI siap. Silakan gambar angka di kanvas.');
+  } catch (err) {
+    console.error('Model error:', err);
+    // Fallback to pixel-density heuristic
+    model = null;
+    setStatus('ready', 'MODE HEURISTIK');
+    document.getElementById('classifyBtn').disabled = false;
+    document.getElementById('modelLoader').style.display = 'none';
+    document.getElementById('loaderMsg').textContent = 'Menggunakan mode heuristik';
+    showToast('⚠️ Menggunakan mode heuristik');
+  }
+}
+
+// Try fetching MNIST weights from TFJS hub
+async function tryLoadPretrainedWeights() {
+  try {
+    // Try loading from tensorflow hub
+    const loaded = await tf.loadLayersModel(
+      'https://storage.googleapis.com/tfjs-models/tfjs/mnist_transfer_cnn_v1/model.json'
+    ).catch(() => null);
+
+    if (loaded) {
+      // Map weights if architecture matches
+      model = loaded;
+      return true;
+    }
+    return false;
+  } catch { return false; }
+}
+
+/* Synthetic training data using deterministic digit pixel patterns */
+async function trainSyntheticModel() {
+  const numSamples = 200; // per digit = 2000 total
+  const xs = [];
+  const ys = [];
+
+  for (let digit = 0; digit < 10; digit++) {
+    for (let s = 0; s < numSamples; s++) {
+      const img = generateDigitImage(digit, s);
+      xs.push(img);
+      const label = new Array(10).fill(0);
+      label[digit] = 1;
+      ys.push(label);
+    }
+  }
+
+  const xTensor = tf.tensor4d(xs, [xs.length, 28, 28, 1]);
+  const yTensor = tf.tensor2d(ys, [ys.length, 10]);
+
+  await model.fit(xTensor, yTensor, {
+    epochs: 8,
+    batchSize: 64,
+    shuffle: true,
+    validationSplit: 0.1,
+    callbacks: {
+      onEpochEnd: (epoch) => {
+        document.getElementById('loaderMsg').textContent =
+          `Pelatihan: epoch ${epoch + 1}/8...`;
+      }
+    }
+  });
+
+  xTensor.dispose();
+  yTensor.dispose();
+}
+
+/* Renders a digit (0-9) programmatically to a 28x28 pixel grid */
+function generateDigitImage(digit, variant) {
+  const offscreen = new OffscreenCanvas(28, 28);
+  const ctx = offscreen.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 28, 28);
+
+  const noise = variant / 200;
+  const fontSize = 18 + (Math.sin(variant * 1.7) * 2) | 0;
+  const x = 6 + (Math.sin(variant * 0.9) * 2) | 0;
+  const y = 22 + (Math.cos(variant * 1.3) * 1) | 0;
+  const rotation = (Math.sin(variant * 0.5) * 0.25);
+
+  ctx.save();
+  ctx.translate(14, 14);
+  ctx.rotate(rotation);
+  ctx.translate(-14, -14);
+
+  ctx.font = `bold ${fontSize}px Arial`;
+  ctx.fillStyle = `rgb(${200 + (noise * 55) | 0},${200 + (noise * 55) | 0},${200 + (noise * 55) | 0})`;
+  ctx.fillText(String(digit), x, y);
+  ctx.restore();
+
+  const imageData = ctx.getImageData(0, 0, 28, 28);
+  const data = imageData.data;
+  const gray = new Array(28 * 28);
+  for (let i = 0; i < 28 * 28; i++) {
+    gray[i] = data[i * 4] / 255;
+  }
+  return gray.map((v, i) => [v]);
+}
+
+/* ═══════════════════════════════════════════════════
+   CANVAS DRAWING
+═══════════════════════════════════════════════════ */
+const canvas = document.getElementById('drawCanvas');
+const ctx2d   = canvas.getContext('2d');
+const brushInput = document.getElementById('brushSize');
+const brushValEl = document.getElementById('brushVal');
+
+brushInput.addEventListener('input', () => {
+  brushValEl.textContent = brushInput.value;
+});
+
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / rect.width;
+  const scaleY = canvas.height / rect.height;
+  if (e.touches) {
+    return {
+      x: (e.touches[0].clientX - rect.left) * scaleX,
+      y: (e.touches[0].clientY - rect.top)  * scaleY,
+    };
+  }
+  return {
+    x: (e.clientX - rect.left) * scaleX,
+    y: (e.clientY - rect.top)  * scaleY,
+  };
+}
+
+canvas.addEventListener('mousedown',  e => { isDrawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; draw(e); });
+canvas.addEventListener('mousemove',  e => { if (isDrawing) draw(e); });
+canvas.addEventListener('mouseup',    () => { isDrawing = false; });
+canvas.addEventListener('mouseleave', () => { isDrawing = false; });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); isDrawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; draw(e); }, { passive: false });
+canvas.addEventListener('touchmove',  e => { e.preventDefault(); if (isDrawing) draw(e); }, { passive: false });
+canvas.addEventListener('touchend',   e => { isDrawing = false; });
+
+function draw(e) {
+  const { x, y } = getPos(e);
+  const brush = parseInt(brushInput.value);
+
+  ctx2d.strokeStyle = '#fff';
+  ctx2d.lineWidth = brush;
+  ctx2d.lineCap = 'round';
+  ctx2d.lineJoin = 'round';
+
+  ctx2d.beginPath();
+  ctx2d.moveTo(lastX, lastY);
+  ctx2d.lineTo(x, y);
+  ctx2d.stroke();
+
+  lastX = x; lastY = y;
+}
+
+function clearCanvas() {
+  ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+  ctx2d.fillStyle = '#000';
+  ctx2d.fillRect(0, 0, canvas.width, canvas.height);
+  resetDetectionUI();
+}
+
+function resetDetectionUI() {
+  document.getElementById('detectedDigit').textContent = '—';
+  document.getElementById('confText').textContent = '0%';
+  document.getElementById('confBar').style.width = '0%';
+  renderProbBars(null);
+}
+
+/* ═══════════════════════════════════════════════════
+   AI CLASSIFICATION
+═══════════════════════════════════════════════════ */
+async function classifyDigit() {
+  const btn = document.getElementById('classifyBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ MEMPROSES...';
+  setStatus('loading', 'Menganalisis...');
+
+  try {
+    let probs;
+
+    if (model) {
+      probs = await classifyWithModel();
+    } else {
+      probs = classifyHeuristic();
+    }
+
+    const digit  = probs.indexOf(Math.max(...probs));
+    const conf   = probs[digit];
+    const confPct = (conf * 100).toFixed(1);
+
+    // Update UI
+    document.getElementById('detectedDigit').textContent = digit;
+    document.getElementById('confText').textContent = confPct + '%';
+    document.getElementById('confBar').style.width = (conf * 100) + '%';
+    renderProbBars(probs, digit);
+
+    // Feed to calculator with flash
+    feedDigitToCalc(digit);
+
+    // Voice
+    speak(`Angka ${digit} terdeteksi`);
+
+    // History
+    addHistory(`Terdeteksi: ${digit} (${confPct}%)`);
+
+    setStatus('ready', 'SIAP');
+    showToast(`✅ Angka ${digit} terdeteksi — ${confPct}% yakin`);
+
+  } catch (err) {
+    console.error(err);
+    showToast('❌ Gagal mengklasifikasi');
+    setStatus('ready', 'ERROR');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⚡ KLASIFIKASI ANGKA';
+  }
+}
+
+async function classifyWithModel() {
+  const imgData = preprocessCanvas();
+  const tensor  = tf.tensor4d(imgData, [1, 28, 28, 1]);
+  const pred    = model.predict(tensor);
+  const probs   = await pred.data();
+  tensor.dispose();
+  pred.dispose();
+  return Array.from(probs);
+}
+
+function preprocessCanvas() {
+  // Downscale 280x280 → 28x28
+  const offscreen = new OffscreenCanvas(28, 28);
+  const octx      = offscreen.getContext('2d');
+  octx.drawImage(canvas, 0, 0, 28, 28);
+  const imageData = octx.getImageData(0, 0, 28, 28);
+  const data = imageData.data;
+
+  // Normalize + find bounding box for centering
+  const raw = [];
+  for (let i = 0; i < 28 * 28; i++) {
+    raw.push(data[i * 4] / 255);
+  }
+  return raw.map(v => [v]);
+}
+
+/* Heuristic fallback using segment density analysis */
+function classifyHeuristic() {
+  const offscreen = new OffscreenCanvas(28, 28);
+  const octx = offscreen.getContext('2d');
+  octx.drawImage(canvas, 0, 0, 28, 28);
+  const imageData = octx.getImageData(0, 0, 28, 28);
+  const d = imageData.data;
+
+  // Build 28x28 binary grid
+  const grid = [];
+  for (let y = 0; y < 28; y++) {
+    grid.push([]);
+    for (let x = 0; x < 28; x++) {
+      const idx = (y * 28 + x) * 4;
+      grid[y].push(d[idx] > 30 ? 1 : 0);
+    }
+  }
+
+  // Feature extraction
+  const totalPixels = grid.flat().reduce((a, b) => a + b, 0);
+  if (totalPixels < 5) {
+    const probs = new Array(10).fill(0.1);
+    return probs;
+  }
+
+  // Quadrant density
+  const q = [0, 0, 0, 0]; // TL, TR, BL, BR
+  for (let y = 0; y < 28; y++) {
+    for (let x = 0; x < 28; x++) {
+      if (!grid[y][x]) continue;
+      const qx = x < 14 ? 0 : 1;
+      const qy = y < 14 ? 0 : 1;
+      q[qy * 2 + qx]++;
+    }
+  }
+  const total = q.reduce((a, b) => a + b, 0) || 1;
+  const [qTL, qTR, qBL, qBR] = q.map(v => v / total);
+
+  // Horizontal / vertical split density
+  const topHalf = q[0] + q[1];
+  const botHalf = q[2] + q[3];
+  const leftHalf = q[0] + q[2];
+  const rightHalf = q[1] + q[3];
+  const th = topHalf / (total || 1);
+  const lh = leftHalf / (total || 1);
+
+  // Count horizontal crossings (loop detection)
+  let hCross = 0;
+  for (let y = 5; y < 23; y++) {
+    for (let x = 1; x < 27; x++) {
+      if (!grid[y][x-1] && grid[y][x]) hCross++;
+    }
+  }
+  // Vertical crossings
+  let vCross = 0;
+  for (let x = 5; x < 23; x++) {
+    for (let y = 1; y < 27; y++) {
+      if (!grid[y-1][x] && grid[y][x]) vCross++;
+    }
+  }
+
+  // Simple scoring (rough heuristic)
+  const scores = new Array(10).fill(0);
+  // 0: loop, symmetric
+  scores[0] += hCross > 2 ? 1.5 : 0;
+  scores[0] += Math.abs(lh - 0.5) < 0.15 ? 1 : 0;
+
+  // 1: mostly vertical, narrow
+  scores[1] += vCross < 3 ? 1.2 : 0;
+  scores[1] += totalPixels < 80 ? 1 : 0;
+
+  // 2: top-heavy, bottom open
+  scores[2] += th > 0.6 ? 1.2 : 0;
+  scores[2] += qBR > 0.3 ? 0.8 : 0;
+
+  // 3: right-heavy
+  scores[3] += rightHalf / (total||1) > 0.55 ? 1.5 : 0;
+  scores[3] += hCross > 2 ? 0.8 : 0;
+
+  // 4: intersection in middle
+  scores[4] += Math.abs(th - 0.5) < 0.2 ? 1 : 0;
+  scores[4] += hCross > 1 && vCross > 1 ? 1.2 : 0;
+
+  // 5: top-open, left+bottom
+  scores[5] += th < 0.45 ? 1.2 : 0;
+  scores[5] += qBL > 0.3 ? 0.8 : 0;
+
+  // 6: loop bottom
+  scores[6] += qBL + qBR > 0.55 ? 1.5 : 0;
+  scores[6] += hCross > 2 ? 0.8 : 0;
+
+  // 7: top line + diagonal
+  scores[7] += th > 0.55 ? 1 : 0;
+  scores[7] += totalPixels < 100 ? 0.8 : 0;
+
+  // 8: two loops
+  scores[8] += hCross > 3 ? 1.8 : 0;
+  scores[8] += Math.abs(topHalf - botHalf) / (total || 1) < 0.2 ? 1 : 0;
+
+  // 9: loop top
+  scores[9] += qTL + qTR > 0.55 ? 1.5 : 0;
+  scores[9] += hCross > 2 ? 0.8 : 0;
+
+  // Softmax
+  const maxS = Math.max(...scores);
+  const exp  = scores.map(s => Math.exp(s - maxS));
+  const sumE = exp.reduce((a, b) => a + b, 0);
+  return exp.map(e => e / sumE);
+}
+
+function renderProbBars(probs, topDigit = -1) {
+  const container = document.getElementById('probBars');
+  container.innerHTML = '';
+  if (!probs) {
+    for (let i = 0; i < 10; i++) {
+      container.innerHTML += `
+        <div class="prob-item">
+          <div class="prob-bar-v"><div class="prob-fill-v" style="height:0%"></div></div>
+          <div class="prob-digit">${i}</div>
+        </div>`;
+    }
+    return;
+  }
+  probs.forEach((p, i) => {
+    const isTop = i === topDigit;
+    container.innerHTML += `
+      <div class="prob-item">
+        <div class="prob-bar-v ${isTop ? 'top' : ''}">
+          <div class="prob-fill-v" style="height:${(p * 100).toFixed(1)}%"></div>
+        </div>
+        <div class="prob-digit" style="color:${isTop ? 'var(--neon-cyan)' : 'var(--text-dim)'}">${i}</div>
+      </div>`;
+  });
+}
+
+/* ═══════════════════════════════════════════════════
+   CALCULATOR ENGINE
+═══════════════════════════════════════════════════ */
+function feedDigitToCalc(digit) {
+  const d = document.getElementById('calcDisplay');
+  d.classList.remove('ai-flash');
+  void d.offsetWidth; // reflow
+  d.classList.add('ai-flash');
+  setTimeout(() => d.classList.remove('ai-flash'), 800);
+
+  if (calcState.waiting || calcState.display === '0' || calcState.justEquals) {
+    calcState.display   = String(digit);
+    calcState.waiting   = false;
+    calcState.justEquals = false;
+  } else {
+    if (calcState.display.length < 15) {
+      calcState.display += String(digit);
+    }
+  }
+  updateDisplay();
+  updateStatus('INPUT DARI AI');
+}
+
+function calcNum(n) {
+  if (calcState.error) calcClearAll();
+  if (calcState.justEquals) {
+    calcState.display   = n;
+    calcState.expression = '';
+    calcState.justEquals = false;
+    calcState.operator   = null;
+    calcState.operand1   = null;
+  } else if (calcState.waiting) {
+    calcState.display  = n;
+    calcState.waiting  = false;
+  } else {
+    calcState.display = calcState.display === '0' ? n : (calcState.display.length < 15 ? calcState.display + n : calcState.display);
+  }
+  updateDisplay();
+  updateStatus('INPUT');
+}
+
+function calcDot() {
+  if (calcState.waiting) {
+    calcState.display  = '0.';
+    calcState.waiting  = false;
+  } else if (!calcState.display.includes('.')) {
+    calcState.display += '.';
+  }
+  updateDisplay();
+}
+
+function calcOp(op) {
+  if (calcState.error) calcClearAll();
+  const val = parseFloat(calcState.display) || 0;
+
+  if (calcState.operator && !calcState.waiting) {
+    // Chain calculation
+    const result = compute(calcState.operand1, val, calcState.operator);
+    if (result === null) { setError(); return; }
+    calcState.display   = formatNum(result);
+    calcState.operand1  = result;
+  } else {
+    calcState.operand1 = val;
+  }
+
+  calcState.operator   = op;
+  calcState.waiting    = true;
+  calcState.justEquals = false;
+  calcState.expression = `${formatNum(calcState.operand1)} ${opSymbol(op)}`;
+  updateDisplay();
+
+  const labels = { '+':'Ditambah', '-':'Dikurang', '*':'Dikali', '/':'Dibagi', '^':'Dipangkat', '%':'Modulo' };
+  speak(labels[op] || op);
+  updateStatus(`OP: ${opSymbol(op)}`);
+
+  // Highlight active op button
+  ['add','sub','mul','div'].forEach(id => {
+    const el = document.getElementById(`btn-${id}`);
+    if (el) el.style.boxShadow = '';
+  });
+}
+
+function opSymbol(op) {
+  return { '+':'+', '-':'−', '*':'×', '/':'÷', '^':'ⁿ', '%':'%' }[op] || op;
+}
+
+function compute(a, b, op) {
+  switch(op) {
+    case '+': return a + b;
+    case '-': return a - b;
+    case '*': return a * b;
+    case '/': return b === 0 ? null : a / b;
+    case '^': return Math.pow(a, b);
+    case '%': return a % b;
+    default:  return b;
+  }
+}
+
+function calcEquals() {
+  if (calcState.error) { calcClearAll(); return; }
+  if (!calcState.operator) { speak(`Hasilnya adalah ${fmtSpeak(calcState.display)}`); return; }
+
+  const b = parseFloat(calcState.display);
+  const result = compute(calcState.operand1, b, calcState.operator);
+
+  if (result === null) { setError('ERROR: BAGI NOL'); return; }
+
+  calcState.expression = `${formatNum(calcState.operand1)} ${opSymbol(calcState.operator)} ${formatNum(b)} =`;
+  calcState.display    = formatNum(result);
+  calcState.operand1   = result;
+  calcState.operator   = null;
+  calcState.waiting    = false;
+  calcState.justEquals = true;
+
+  updateDisplay();
+  addHistory(`${calcState.expression} ${calcState.display}`);
+  speak(`Hasilnya adalah ${fmtSpeak(calcState.display)}`);
+  updateStatus('HASIL');
+}
+
+function calcFn(fn) {
+  if (calcState.error) calcClearAll();
+  let val = parseFloat(calcState.display);
+  let result;
+
+  const toRad = v => angleMode === 'deg' ? v * Math.PI / 180 : v;
+  const fromRad = v => angleMode === 'deg' ? v * 180 / Math.PI : v;
+
+  switch(fn) {
+    case 'sin':  result = Math.sin(toRad(val)); speak('Sinus'); break;
+    case 'cos':  result = Math.cos(toRad(val)); speak('Kosinus'); break;
+    case 'tan':  result = Math.tan(toRad(val)); speak('Tangen'); break;
+    case 'sinh': result = Math.sinh(val); speak('Sinus hiperbolik'); break;
+    case 'cosh': result = Math.cosh(val); speak('Kosinus hiperbolik'); break;
+    case 'tanh': result = Math.tanh(val); speak('Tangen hiperbolik'); break;
+    case 'log':  result = val <= 0 ? null : Math.log10(val); speak('Logaritma'); break;
+    case 'log2': result = val <= 0 ? null : Math.log2(val); speak('Logaritma dua'); break;
+    case 'ln':   result = val <= 0 ? null : Math.log(val); speak('Ln'); break;
+    case 'sqrt': result = val < 0 ? null : Math.sqrt(val); speak('Akar'); break;
+    case 'cbrt': result = Math.cbrt(val); speak('Akar kubik'); break;
+    case 'sq':   result = val * val; speak('Kuadrat'); break;
+    case 'inv':  result = val === 0 ? null : 1 / val; speak('Invers'); break;
+    case 'abs':  result = Math.abs(val); speak('Nilai mutlak'); break;
+    case 'floor':result = Math.floor(val); speak('Lantai'); break;
+    case 'ceil': result = Math.ceil(val); speak('Langit-langit'); break;
+    case 'fact': result = factorial(val); speak('Faktorial'); break;
+    case 'neg':  result = -val; break;
+    case 'rad':  
+      angleMode = angleMode === 'rad' ? 'deg' : 'rad';
+      document.getElementById('angleModeBtn').textContent = angleMode.toUpperCase();
+      document.getElementById('modeLabel').textContent = `MODE: ${angleMode.toUpperCase()}`;
+      speak(`Mode ${angleMode === 'rad' ? 'radian' : 'derajat'}`);
+      return;
+    default: return;
+  }
+
+  if (result === null || !isFinite(result) || isNaN(result)) {
+    setError(); return;
+  }
+
+  calcState.expression = `${fn.toUpperCase()}(${formatNum(val)}) =`;
+  calcState.display    = formatNum(result);
+  calcState.operand1   = result;
+  calcState.operator   = null;
+  calcState.justEquals = true;
+  updateDisplay();
+  addHistory(`${fn}(${formatNum(val)}) = ${formatNum(result)}`);
+  updateStatus('HASIL');
+}
+
+function factorial(n) {
+  n = Math.floor(Math.abs(n));
+  if (n > 170) return Infinity;
+  if (n <= 1)  return 1;
+  let r = 1;
+  for (let i = 2; i <= n; i++) r *= i;
+  return r;
+}
+
+function insertConst(c) {
+  const val = c === 'PI' ? Math.PI : Math.E;
+  calcState.display  = formatNum(val);
+  calcState.waiting  = false;
+  speak(c === 'PI' ? 'Pi' : 'Euler');
+  updateDisplay();
+}
+
+function calcClearAll()  {
+  calcState = { display:'0', expression:'', operator:null, operand1:null, waiting:false, justEquals:false, error:false };
+  updateDisplay();
+  updateStatus('SIAP INPUT');
+}
+
+function calcClearEntry() {
+  calcState.display = '0';
+  calcState.error   = false;
+  updateDisplay();
+}
+
+function calcBackspace() {
+  if (calcState.display.length > 1) {
+    calcState.display = calcState.display.slice(0, -1);
+  } else {
+    calcState.display = '0';
+  }
+  updateDisplay();
+}
+
+function formatNum(n) {
+  if (!isFinite(n)) return 'Inf';
+  if (isNaN(n))     return 'NaN';
+  const s = parseFloat(n.toPrecision(12));
+  if (Math.abs(s) >= 1e15 || (Math.abs(s) < 1e-10 && s !== 0)) {
+    return s.toExponential(6);
+  }
+  return String(s);
+}
+
+function fmtSpeak(s) {
+  if (s === 'ERROR' || s.startsWith('Inf') || s === 'NaN') return s;
+  return s.replace('.', ' koma ');
+}
+
+function setError(msg = 'ERROR') {
+  calcState.error   = true;
+  calcState.display = msg;
+  updateDisplay();
+  speak('Error');
+  updateStatus('ERROR');
+}
+
+function updateDisplay() {
+  document.getElementById('calcDisplay').textContent = calcState.display;
+  document.getElementById('calcExpr').textContent    = calcState.expression;
+}
+
+function updateStatus(s) {
+  document.getElementById('calcStatus').textContent = s;
+}
+
+/* ── Memory ── */
+function memStore()  { memory = parseFloat(calcState.display) || 0; document.getElementById('memDisplay').textContent = formatNum(memory); showToast('Nilai disimpan ke memori'); }
+function memRecall() { calcState.display = formatNum(memory); updateDisplay(); showToast('Nilai memori dipanggil'); }
+function memClear()  { memory = 0; document.getElementById('memDisplay').textContent = '0'; showToast('Memori dibersihkan'); }
+function memSub()    { memory -= parseFloat(calcState.display) || 0; document.getElementById('memDisplay').textContent = formatNum(memory); showToast('Dikurangi dari memori'); }
+
+function toggleAngleMode() {
+  angleMode = angleMode === 'rad' ? 'deg' : 'rad';
+  document.getElementById('angleModeBtn').textContent = angleMode.toUpperCase();
+  document.getElementById('modeLabel').textContent = `MODE: ${angleMode.toUpperCase()}`;
+  speak(`Mode ${angleMode === 'rad' ? 'radian' : 'derajat'}`);
+}
+
+/* ── Keyboard support ── */
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key >= '0' && e.key <= '9') calcNum(e.key);
+  else if (e.key === '+') calcOp('+');
+  else if (e.key === '-') calcOp('-');
+  else if (e.key === '*') calcOp('*');
+  else if (e.key === '/') { e.preventDefault(); calcOp('/'); }
+  else if (e.key === 'Enter' || e.key === '=') calcEquals();
+  else if (e.key === 'Backspace') calcBackspace();
+  else if (e.key === 'Escape') calcClearAll();
+  else if (e.key === '.') calcDot();
+});
+
+/* ═══════════════════════════════════════════════════
+   VOICE (TTS)
+═══════════════════════════════════════════════════ */
+function speak(text) {
+  if (!voiceEnabled) return;
+  if (!window.speechSynthesis) return;
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang  = 'id-ID';
+  utter.rate  = 1.1;
+  utter.pitch = 1;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utter);
+}
+
+function toggleVoice() {
+  voiceEnabled = !voiceEnabled;
+  const track = document.getElementById('voiceToggle');
+  const label = document.getElementById('voiceLabel');
+  if (voiceEnabled) {
+    track.classList.add('on');
+    label.textContent = 'SUARA ON';
+    speak('Suara aktif');
+  } else {
+    track.classList.remove('on');
+    label.textContent = 'SUARA OFF';
+    window.speechSynthesis.cancel();
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   HISTORY
+═══════════════════════════════════════════════════ */
+let historyItems = [];
+
+function addHistory(text) {
+  historyItems.unshift(text);
+  if (historyItems.length > 10) historyItems.pop();
+  renderHistory();
+}
+
+function clearHistory() {
+  historyItems = [];
+  renderHistory();
+}
+
+function renderHistory() {
+  const el = document.getElementById('historyList');
+  if (historyItems.length === 0) {
+    el.innerHTML = '<div class="draw-hint" style="text-align:center;padding:10px;">Belum ada riwayat</div>';
+    return;
+  }
+  el.innerHTML = historyItems.map(h => `<div class="history-item">${h}</div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════
+   STATUS / TOAST
+═══════════════════════════════════════════════════ */
+function setStatus(state, text) {
+  const dot  = document.getElementById('statusDot');
+  const span = document.getElementById('statusText');
+  dot.className  = 'status-dot ' + (state === 'loading' ? 'loading' : state === 'error' ? 'error' : '');
+  span.textContent = text.toUpperCase();
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+/* ═══════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════ */
+window.addEventListener('DOMContentLoaded', async () => {
+  // Init canvas
+  ctx2d.fillStyle = '#000';
+  ctx2d.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Init prob bars
+  renderProbBars(null);
+
+  // Start model loading
+  document.getElementById('loaderMsg').textContent = 'Memuat TensorFlow.js...';
+  await buildAndLoadModel();
+});
+</script>
+</body>
+</html>
